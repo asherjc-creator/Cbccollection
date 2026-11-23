@@ -70,7 +70,11 @@ TEXTS = {
         "name": "పేరు లేదా కుటుంబం నుండి",
         "phone": "ఫోన్ నంబర్",
         "submit": "✨ నా వాగ్దానాన్ని సమర్పించండి",
+        "thank_title": "ధన్యవాదాలు!",
         "thank": "మీ విరాళ వాగ్దానానికి ధన్యవాదాలు! మీ విరాళాన్ని సేకరించడానికి మేము త్వరలో మిమ్మల్ని సంప్రదిస్తాము.",
+        "committed_by": "పేరు / కుటుంబం",
+        "committed_amt": "వాగ్దానం చేసిన మొత్తం",
+        "back_home": "మరొక వాగ్దానం చేయండి / హోమ్‌కు వెళ్లండి",
         "progress": "విరాళాల పురోగతి",
         "completed": "పూర్తయింది",
         "admin": "నిర్వాహకులు",
@@ -96,7 +100,11 @@ TEXTS = {
         "name": "Name or from family",
         "phone": "Phone",
         "submit": "✨ Submit my commitment",
+        "thank_title": "Thank You!",
         "thank": "Thank you for your donation commitment! We will contact you shortly to collect your donation.",
+        "committed_by": "Name / Family",
+        "committed_amt": "Committed Amount",
+        "back_home": "Make another commitment / Back to form",
         "progress": "Donation progress",
         "completed": "Completed",
         "admin": "Administration",
@@ -119,8 +127,14 @@ TEXTS = {
 if "lang" not in st.session_state:
     st.session_state.lang = "తెలుగు"
 
-if "just_committed" not in st.session_state:
-    st.session_state.just_committed = False
+if "page" not in st.session_state:
+    st.session_state.page = "form"
+
+if "last_commitment" not in st.session_state:
+    st.session_state.last_commitment = None
+
+if "celebrate_once" not in st.session_state:
+    st.session_state.celebrate_once = False
 
 if "admin_unlocked" not in st.session_state:
     st.session_state.admin_unlocked = False
@@ -192,8 +206,36 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+def render_progress_bar(texts: dict):
+    df = get_commitments()
+    total = int(df["amount"].sum()) if not df.empty else 0
+    percentage = min(total / TARGET, 1.0)
+
+    st.markdown(
+        """
+        <div class="warm-card" style="margin-top:18px;">
+            <div style="font-weight:700;font-size:16px;color:#5e3f25;margin-bottom:8px;">
+                {label}
+            </div>
+        """.format(label=texts["progress"]),
+        unsafe_allow_html=True,
+    )
+    st.progress(percentage)
+    st.markdown(
+        """
+            <div style="text-align:center;font-size:20px;font-weight:700;color:#785227;margin-top:6px;">
+                {pct:.1f}% {done}
+            </div>
+        </div>
+        """.format(pct=percentage * 100, done=texts["completed"]),
+        unsafe_allow_html=True,
+    )
+    return df
+
+
 # ---------------- LANGUAGE TOGGLE ----------------
-top_left, top_right = st.columns([2.5, 1.5])
+_, top_right = st.columns([2.5, 1.5])
 with top_right:
     selected_lang = st.selectbox(
         TEXTS[st.session_state.lang]["toggle_label"],
@@ -223,67 +265,87 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------------- POST-SUBMISSION CELEBRATION ----------------
-if st.session_state.just_committed:
-    st.success(f"✨ {T['thank']}")
-    st.balloons()
-    st.snow()
-    st.session_state.just_committed = False
+# ---------------- PAGE ROUTING: FORM VS THANK YOU PAGE ----------------
+if st.session_state.page == "thank_you":
+    if st.session_state.celebrate_once:
+        st.balloons()
+        st.snow()
+        st.session_state.celebrate_once = False
 
-# ---------------- COMMITMENT FORM ----------------
-with st.form("commitment_form", clear_on_submit=True):
-    amount = st.number_input(
-        T["amount"],
-        step=10,
-        value=100,
-    )
-    name = st.text_input(
-        T["name"],
-        max_chars=120,
-    )
-    phone = st.text_input(
-        T["phone"],
-        max_chars=30,
-    )
-    submitted = st.form_submit_button(
-        T["submit"],
-        use_container_width=True,
+    last = st.session_state.last_commitment or {}
+    committed_name = last.get("name", "")
+    committed_amount = last.get("amount", 0)
+
+    st.markdown(
+        """
+        <div class="warm-card" style="text-align:center;padding:28px 24px;">
+            <div style="font-size:40px;margin-bottom:8px;">✨🙏✝️✨</div>
+            <h2 style="margin:0 0 10px 0;">{title}</h2>
+            <p style="font-size:17px;line-height:1.6;color:#4e3520;margin:0 0 18px 0;">
+                {msg}
+            </p>
+            <div style="background:#fff7e6;border:1px solid #e4cca2;border-radius:14px;padding:12px 16px;display:inline-block;">
+                <span style="color:#785227;font-weight:600;">{by_label}:</span>
+                <strong>{name}</strong> &nbsp;|&nbsp;
+                <span style="color:#785227;font-weight:600;">{amt_label}:</span>
+                <strong>₹{amt:,}</strong>
+            </div>
+        </div>
+        """.format(
+            title=T["thank_title"],
+            msg=T["thank"],
+            by_label=T["committed_by"],
+            name=committed_name,
+            amt_label=T["committed_amt"],
+            amt=committed_amount,
+        ),
+        unsafe_allow_html=True,
     )
 
-if submitted:
-    if not name.strip() or not phone.strip():
-        st.error(T["fields_error"])
-    elif amount is None or amount < 10:
-        st.error(T["min_error"])
-    else:
-        add_commitment(int(amount), name, phone)
-        st.session_state.just_committed = True
+    df = render_progress_bar(T)
+
+    if st.button(T["back_home"], use_container_width=True):
+        st.session_state.page = "form"
         st.rerun()
 
-# ---------------- PROGRESS BAR AT BOTTOM ----------------
-df = get_commitments()
-total = int(df["amount"].sum()) if not df.empty else 0
-percentage = min(total / TARGET, 1.0)
+else:
+    with st.form("commitment_form", clear_on_submit=True):
+        amount = st.number_input(
+            T["amount"],
+            step=10,
+            value=100,
+        )
+        name = st.text_input(
+            T["name"],
+            max_chars=120,
+        )
+        phone = st.text_input(
+            T["phone"],
+            max_chars=30,
+        )
+        submitted = st.form_submit_button(
+            T["submit"],
+            use_container_width=True,
+        )
 
-st.markdown(
-    """
-    <div class="warm-card" style="margin-top:18px;">
-        <div style="font-weight:700;font-size:16px;color:#5e3f25;margin-bottom:8px;">
-            {label}
-        </div>
-    """.format(label=T["progress"]),
-    unsafe_allow_html=True,
-)
-st.progress(percentage)
-st.markdown(
-    """
-        <div style="text-align:center;font-size:20px;font-weight:700;color:#785227;margin-top:6px;">
-            {pct:.1f}% {done}
-        </div>
-    </div>
-    """.format(pct=percentage * 100, done=T["completed"]),
-    unsafe_allow_html=True,
-)
+    if submitted:
+        if not name.strip() or not phone.strip():
+            st.error(T["fields_error"])
+        elif amount is None or amount < 10:
+            st.error(T["min_error"])
+        else:
+            clean_name = name.strip()
+            clean_amt = int(amount)
+            add_commitment(clean_amt, clean_name, phone)
+            st.session_state.last_commitment = {
+                "name": clean_name,
+                "amount": clean_amt,
+            }
+            st.session_state.celebrate_once = True
+            st.session_state.page = "thank_you"
+            st.rerun()
+
+    df = render_progress_bar(T)
 
 # ---------------- FOOTER + BOTTOM-LEFT ADMIN BUTTON ----------------
 st.markdown(
